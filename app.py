@@ -1,229 +1,232 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-import joblib
-import pandas as pd
+from sqlalchemy.orm import Session
 import numpy as np
-from typing import List, Dict
-import warnings
-warnings.filterwarnings('ignore')
+import joblib
 
-print("Loading models...")
-model = joblib.load('model.pkl')
-scaler = joblib.load('scaler.pkl')
-feature_names = joblib.load('feature_names.pkl')
-explainer = joblib.load('explainer.pkl')
-label_encoders = joblib.load('label_encoders.pkl')
-print("✓ All models loaded successfully!")
+from database import get_db
+from models import Employee, Prediction, ShapExplanation, RecommendedAction
+from schemas import EmployeeInput
 
-app = FastAPI(title="Employee Attrition Prediction API")
+app = FastAPI(
+    title="Employee Attrition Prediction System",
+    version="2.0",
+    description="Enterprise-grade Employee Attrition Prediction with Explainable AI"
+)
+
+# --------------------------------------------------
+# CORS CONFIGURATION (OPTION B – STRICT & SAFE)
+# --------------------------------------------------
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "http://localhost",
+        "http://localhost:3000",
+        "http://127.0.0.1",
+        "http://127.0.0.1:8000",
+        "null"  # required for file:// origin
+    ],
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-class EmployeeInput(BaseModel):
-    Age: int
-    BusinessTravel: str
-    DailyRate: int
-    Department: str
-    DistanceFromHome: int
-    Education: int
-    EducationField: str
-    EnvironmentSatisfaction: int
-    Gender: str
-    HourlyRate: int
-    JobInvolvement: int
-    JobLevel: int
-    JobRole: str
-    JobSatisfaction: int
-    MaritalStatus: str
-    MonthlyIncome: int
-    MonthlyRate: int
-    NumCompaniesWorked: int
-    OverTime: str
-    PercentSalaryHike: int
-    PerformanceRating: int
-    RelationshipSatisfaction: int
-    StockOptionLevel: int
-    TotalWorkingYears: int
-    TrainingTimesLastYear: int
-    WorkLifeBalance: int
-    YearsAtCompany: int
-    YearsInCurrentRole: int
-    YearsSinceLastPromotion: int
-    YearsWithCurrManager: int
+# --------------------------------------------------
+# Load training artifacts (SOURCE OF TRUTH)
+# --------------------------------------------------
 
-class PredictionOutput(BaseModel):
-    risk_probability: float
-    risk_level: str
-    top_factors: List[Dict]
-    recommended_actions: List[Dict]
+model = joblib.load("model.pkl")
+scaler = joblib.load("scaler.pkl")
+explainer = joblib.load("explainer.pkl")
+feature_names = joblib.load("feature_names.pkl")
+label_encoders = joblib.load("label_encoders.pkl")
 
-@app.get("/")
-async def root():
-    return {
-        "status": "Attrition Prediction API is running",
-        "version": "1.0",
-        "endpoints": ["/predict", "/docs"]
-    }
+CATEGORICAL_COLS = set(label_encoders.keys())
 
-@app.post("/predict", response_model=PredictionOutput)
-async def predict_attrition(employee: EmployeeInput):
-    try:
-        # Convert to dataframe
-        data = pd.DataFrame([employee.dict()])
-        
-        # Encode categorical variables
-        categorical_cols = ['BusinessTravel', 'Department', 'EducationField', 
-                           'Gender', 'JobRole', 'MaritalStatus', 'OverTime']
-        for col in categorical_cols:
-            if col in data.columns and col in label_encoders:
-                try:
-                    data[col] = label_encoders[col].transform(data[col])
-                except:
-                    data[col] = 0
-        
-        # Feature engineering
-        data['PromotionGap'] = data['YearsAtCompany'] - data['YearsSinceLastPromotion']
-        data['SatisfactionWorkloadRatio'] = data['JobSatisfaction'] / (data['DistanceFromHome'] + 1)
-        data['CareerStagnation'] = ((data['YearsSinceLastPromotion'] > 3) & 
-                                     (data['PerformanceRating'] >= 3)).astype(int)
-        data['IncomeToAgeRatio'] = data['MonthlyIncome'] / data['Age']
-        data['ExperienceToPromotionRatio'] = data['YearsAtCompany'] / (data['YearsSinceLastPromotion'] + 1)
-        
-        # Ensure correct column order
-        data = data[feature_names]
-        
-        # Scale
-        data_scaled = scaler.transform(data)
-        
-        # Predict
-        probability = float(model.predict_proba(data_scaled)[0][1])
-        
-        # Risk level
-        if probability > 0.7:
-            risk_level = "HIGH"
-        elif probability > 0.4:
-            risk_level = "MEDIUM"
-        else:
-            risk_level = "LOW"
-        
-        # SHAP Explanations
-        shap_values = explainer.shap_values(data_scaled)
-        
-        # Top factors
-        feature_impact = list(zip(feature_names, shap_values[0]))
-        feature_impact.sort(key=lambda x: abs(x[1]), reverse=True)
-        
-        top_factors = []
-        for feat, impact in feature_impact[:5]:
-            if abs(impact) > 0.01:
-                top_factors.append({
-                    "factor": feat,
-                    "impact": float(impact),
-                    "direction": "increases risk" if impact > 0 else "decreases risk",
-                    "value": float(data[feat].iloc[0])
-                })
-        
-        # Generate actions
-        actions = generate_actions(top_factors, probability)
-        
-        return PredictionOutput(
-            risk_probability=probability,
-            risk_level=risk_level,
-            top_factors=top_factors,
-            recommended_actions=actions
+# --------------------------------------------------
+# Helper logic
+# --------------------------------------------------
+
+def risk_bucket(prob: float) -> str:
+    if prob >= 0.75:
+        return "HIGH"
+    elif prob >= 0.40:
+        return "MEDIUM"
+    return "LOW"
+
+
+def encode_categorical(feature: str, value: str):
+    encoder = label_encoders[feature]
+    if value not in encoder.classes_:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unseen categorical value '{value}' for feature '{feature}'"
         )
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return encoder.transform([value])[0]
 
-def generate_actions(factors, risk_prob):
+
+def build_feature_vector(data: dict):
+    # --- engineered features (MATCH train_model.py) ---
+    data["PromotionGap"] = data["YearsAtCompany"] - data["YearsSinceLastPromotion"]
+    data["SatisfactionWorkloadRatio"] = (
+        data["JobSatisfaction"] / (data["DistanceFromHome"] + 1)
+    )
+    data["CareerStagnation"] = int(
+        data["YearsSinceLastPromotion"] > 3 and data["PerformanceRating"] >= 3
+    )
+    data["IncomeToAgeRatio"] = data["MonthlyIncome"] / data["Age"]
+    data["ExperienceToPromotionRatio"] = (
+        data["YearsAtCompany"] / (data["YearsSinceLastPromotion"] + 1)
+    )
+
+    feature_row = {}
+
+    for feature in feature_names:
+        if feature not in data:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Missing required feature '{feature}'"
+            )
+
+        value = data[feature]
+
+        if feature in CATEGORICAL_COLS:
+            feature_row[feature] = encode_categorical(feature, value)
+        else:
+            feature_row[feature] = float(value)
+
+    X = np.array([[feature_row[f] for f in feature_names]])
+    return X, feature_row
+
+
+def extract_top_factors(shap_values, feature_values, top_k=5):
+    combined = list(zip(feature_names, shap_values, feature_values.values()))
+    combined.sort(key=lambda x: abs(x[1]), reverse=True)
+
+    top = []
+    for feature, impact, value in combined[:top_k]:
+        top.append({
+            "factor": feature,
+            "impact": float(impact),
+            "direction": "INCREASES RISK" if impact > 0 else "DECREASES RISK",
+            "value": float(value)
+        })
+
+    return top
+
+
+def action_engine(top_factors):
     actions = []
-    
-    action_map = {
-        'YearsSinceLastPromotion': {
-            'action': 'Schedule promotion review meeting',
-            'priority': 'Immediate',
-            'description': 'Employee overdue for career advancement'
-        },
-        'JobSatisfaction': {
-            'action': 'Conduct 1-on-1 satisfaction assessment',
-            'priority': 'Immediate',
-            'description': 'Address job satisfaction concerns with manager'
-        },
-        'MonthlyIncome': {
-            'action': 'Review compensation against market benchmarks',
-            'priority': 'High',
-            'description': 'Potential salary adjustment needed'
-        },
-        'WorkLifeBalance': {
-            'action': 'Implement flexible work arrangements',
-            'priority': 'Medium',
-            'description': 'Improve work-life balance options'
-        },
-        'OverTime': {
-            'action': 'Review workload and redistribute tasks',
-            'priority': 'High',
-            'description': 'Excessive overtime detected'
-        },
-        'DistanceFromHome': {
-            'action': 'Discuss remote work or relocation assistance',
-            'priority': 'Medium',
-            'description': 'Long commute may be affecting retention'
-        },
-        'PromotionGap': {
-            'action': 'Create career development plan',
-            'priority': 'Immediate',
-            'description': 'Large gap between tenure and promotions'
-        },
-        'EnvironmentSatisfaction': {
-            'action': 'Improve workplace environment and culture',
-            'priority': 'Medium',
-            'description': 'Employee dissatisfied with work environment'
-        },
-        'YearsWithCurrManager': {
-            'action': 'Consider manager change or coaching',
-            'priority': 'High',
-            'description': 'Potential manager relationship issues'
-        }
-    }
-    
-    for factor in factors:
-        if factor['impact'] > 0:
-            factor_name = factor['factor']
-            for key in action_map:
-                if key in factor_name:
-                    actions.append(action_map[key])
-                    break
-    
-    if risk_prob > 0.7 and len(actions) > 0:
-        actions.insert(0, {
-            'action': 'URGENT: Schedule immediate retention discussion',
-            'priority': 'Critical',
-            'description': 'High flight risk - immediate intervention required'
-        })
-    
-    if len(actions) == 0:
-        actions.append({
-            'action': 'Continue regular check-ins',
-            'priority': 'Low',
-            'description': 'Employee showing good retention indicators'
-        })
-    
+
+    for f in top_factors:
+        if f["factor"] == "MonthlyIncome" and f["impact"] > 0:
+            actions.append({
+                "action": "Compensation Review",
+                "priority": "High",
+                "description": "Low income is a major attrition driver."
+            })
+
+        if f["factor"] == "YearsSinceLastPromotion" and f["impact"] > 0:
+            actions.append({
+                "action": "Promotion & Career Path Discussion",
+                "priority": "Medium",
+                "description": "Career stagnation detected."
+            })
+
+        if f["factor"] == "OverTime" and f["impact"] > 0:
+            actions.append({
+                "action": "Workload Optimization",
+                "priority": "High",
+                "description": "Excessive overtime contributing to burnout."
+            })
+
     return actions
 
-if __name__ == "__main__":
-    import uvicorn
-    print("\n" + "="*50)
-    print("🚀 Starting API Server...")
-    print("="*50)
-    print("📍 API will be available at: http://localhost:8000")
-    print("📚 Documentation at: http://localhost:8000/docs")
-    print("\nPress CTRL+C to stop the server")
-    print("="*50 + "\n")
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+# --------------------------------------------------
+# API Endpoints
+# --------------------------------------------------
+
+@app.post("/predict")
+def predict_attrition(
+    payload: EmployeeInput,
+    db: Session = Depends(get_db)
+):
+    data = payload.dict()
+
+    # 1️⃣ Build feature vector
+    X, feature_value_map = build_feature_vector(data)
+    X_scaled = scaler.transform(X)
+
+    # 2️⃣ Predict
+    probability = float(model.predict_proba(X_scaled)[0][1])
+    risk_level = risk_bucket(probability)
+
+    # 3️⃣ Explainability
+    shap_values = explainer.shap_values(X_scaled)[0]
+    top_factors = extract_top_factors(shap_values, feature_value_map)
+    actions = action_engine(top_factors)
+
+    # 4️⃣ Persist Employee snapshot
+    employee = Employee(
+        age=data["Age"],
+        department=data["Department"],
+        job_role=data["JobRole"],
+        monthly_income=data["MonthlyIncome"],
+        years_at_company=data["YearsAtCompany"]
+    )
+    db.add(employee)
+    db.commit()
+    db.refresh(employee)
+
+    # 5️⃣ Persist Prediction
+    prediction = Prediction(
+        employee_id=employee.id,
+        risk_probability=probability,
+        risk_level=risk_level
+    )
+    db.add(prediction)
+    db.commit()
+    db.refresh(prediction)
+
+    # 6️⃣ Persist SHAP
+    for feature, impact in zip(feature_names, shap_values):
+        db.add(
+            ShapExplanation(
+                prediction_id=prediction.id,
+                feature_name=feature,
+                impact=float(impact),
+                direction="Positive" if impact > 0 else "Negative"
+            )
+        )
+
+    # 7️⃣ Persist Actions
+    for action in actions:
+        db.add(
+            RecommendedAction(
+                prediction_id=prediction.id,
+                action=action["action"],
+                priority=action["priority"],
+                description=action["description"]
+            )
+        )
+
+    db.commit()
+
+    # 8️⃣ Frontend-aligned response
+    return {
+        "employee_id": employee.id,
+        "risk_probability": probability,
+        "risk_level": risk_level,
+        "top_factors": top_factors,
+        "recommended_actions": actions
+    }
+
+
+@app.get("/predictions/{employee_id}")
+def prediction_history(employee_id: int, db: Session = Depends(get_db)):
+    return (
+        db.query(Prediction)
+        .filter(Prediction.employee_id == employee_id)
+        .all()
+    )
