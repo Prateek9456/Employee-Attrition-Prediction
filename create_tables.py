@@ -1,10 +1,18 @@
-from database import engine, Base
+from database import engine
+from models import (
+    Employee,
+    Prediction,
+    ShapExplanation,
+    RecommendedAction,
+    ModelMetadata,
+    RiskTrend,
+    DriftMetric
+)
 
-# 👇 THIS IS CRITICAL (registers tables)
-import models  
-
-print("🚀 Creating database tables...")
-
-Base.metadata.create_all(bind=engine)
-
-print("✅ All tables created successfully!")
+Employee.__table__.create(bind=engine, checkfirst=True)
+Prediction.__table__.create(bind=engine, checkfirst=True)
+ShapExplanation.__table__.create(bind=engine, checkfirst=True)
+RecommendedAction.__table__.create(bind=engine, checkfirst=True)
+ModelMetadata.__table__.create(bind=engine, checkfirst=True)
+RiskTrend.__table__.create(bind=engine, checkfirst=True)
+DriftMetric.__table__.create(bind=engine, checkfirst=True)

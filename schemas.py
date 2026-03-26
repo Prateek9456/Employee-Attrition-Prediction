@@ -1,8 +1,9 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 
 class EmployeeInput(BaseModel):
-    Age: int = Field(..., gt=0)
+    Age: int
+    Attrition: str | None = None
     BusinessTravel: str
     DailyRate: int
     Department: str
