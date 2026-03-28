@@ -1,27 +1,13 @@
-# Python
+# Python cache
 __pycache__/
 *.pyc
 
 # Environment
 .env
-venv/
-env/
 
-# Model artifacts (optional - see note below)
-model.pkl
-scaler.pkl
-feature_names.pkl
-label_encoders.pkl
-
-# OS
+# OS files
 .DS_Store
+Thumbs.db
 
-# Logs
-*.log
-
-# Database (if local)
-*.db
-
-# IDE
-.vscode/
-.idea/
+# Model artifacts (optional if already tracked)
+# *.pkl
