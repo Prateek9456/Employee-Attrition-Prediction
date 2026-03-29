@@ -1,14 +1,28 @@
 import pandas as pd
 import joblib
 
-# Load artifacts
-scaler = joblib.load("scaler.pkl")
-label_encoders = joblib.load("label_encoders.pkl")
-feature_names = joblib.load("feature_names.pkl")
+# Lazy loading (prevents startup crash)
+scaler = None
+label_encoders = None
+feature_names = None
+
+
+def load_artifacts():
+    global scaler, label_encoders, feature_names
+
+    if scaler is None:
+        scaler = joblib.load("scaler.pkl")
+
+    if label_encoders is None:
+        label_encoders = joblib.load("label_encoders.pkl")
+
+    if feature_names is None:
+        feature_names = joblib.load("feature_names.pkl")
 
 
 def transform_input(input_data: dict):
-    # Convert to DataFrame
+    load_artifacts()
+
     df = pd.DataFrame([input_data])
 
     # 🔹 Apply label encoding
@@ -17,13 +31,12 @@ def transform_input(input_data: dict):
             try:
                 df[col] = encoder.transform(df[col])
             except:
-                # Handle unseen categories
-                df[col] = 0
+                df[col] = 0  # fallback for unseen category
 
-    # 🔹 Ensure correct feature order
+    # 🔹 Ensure feature order
     df = df[feature_names]
 
-    # 🔹 Apply scaling
+    # 🔹 Scale
     df_scaled = scaler.transform(df)
 
     return df_scaled

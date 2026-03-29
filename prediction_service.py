@@ -1,18 +1,27 @@
 import joblib
 from feature_pipeline import transform_input
 
-# Load model
-model = joblib.load("model.pkl")
+# Lazy model loading
+model = None
+
+
+def load_model():
+    global model
+    if model is None:
+        model = joblib.load("model.pkl")
+    return model
 
 
 def predict_and_explain(input_data: dict):
     try:
-        # 🔹 Transform input
+        model = load_model()
+
+        # Transform features
         features = transform_input(input_data)
 
-        print("TRANSFORMED FEATURES:", features)
+        print("FEATURES:", features)
 
-        # 🔹 Predict probability
+        # Predict probability
         prob = model.predict_proba(features)[0][1]
 
         print("PREDICTION:", prob)
@@ -24,6 +33,7 @@ def predict_and_explain(input_data: dict):
         }
 
     except Exception as e:
+        print("ERROR:", str(e))
         return {
             "status": "error",
             "message": str(e)
