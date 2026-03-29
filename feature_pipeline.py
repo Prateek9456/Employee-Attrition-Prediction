@@ -1,12 +1,29 @@
 import pandas as pd
+import joblib
 
-def apply_feature_engineering(df: pd.DataFrame) -> pd.DataFrame:
-    df = df.copy()
+# Load artifacts
+scaler = joblib.load("scaler.pkl")
+label_encoders = joblib.load("label_encoders.pkl")
+feature_names = joblib.load("feature_names.pkl")
 
-    df["PromotionGap"] = df["YearsSinceLastPromotion"]
-    df["SatisfactionWorkloadRatio"] = df["JobSatisfaction"] / (df["WorkLifeBalance"] + 1)
-    df["CareerStagnation"] = df["YearsInCurrentRole"] / (df["YearsAtCompany"] + 1)
-    df["IncomeToAgeRatio"] = df["MonthlyIncome"] / (df["Age"] + 1)
-    df["ExperienceToPromotionRatio"] = df["TotalWorkingYears"] / (df["YearsSinceLastPromotion"] + 1)
 
-    return df
+def transform_input(input_data: dict):
+    # Convert to DataFrame
+    df = pd.DataFrame([input_data])
+
+    # 🔹 Apply label encoding
+    for col, encoder in label_encoders.items():
+        if col in df.columns:
+            try:
+                df[col] = encoder.transform(df[col])
+            except:
+                # Handle unseen categories
+                df[col] = 0
+
+    # 🔹 Ensure correct feature order
+    df = df[feature_names]
+
+    # 🔹 Apply scaling
+    df_scaled = scaler.transform(df)
+
+    return df_scaled

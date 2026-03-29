@@ -1,17 +1,30 @@
-# prediction_service.py
+import joblib
+from feature_pipeline import transform_input
 
-def predict_and_explain(data: dict):
-    """
-    Dummy / existing model wrapper
-    Replace model logic if needed
-    """
+# Load model
+model = joblib.load("model.pkl")
 
-    # 🔥 YOUR MODEL CALL HERE
-    # Example:
-    probability = 0.65  # <-- replace with model.predict_proba()
 
-    return {
-        "status": "success",
-        "attrition_probability": probability,
-        "top_factors": []
-    }
+def predict_and_explain(input_data: dict):
+    try:
+        # 🔹 Transform input
+        features = transform_input(input_data)
+
+        print("TRANSFORMED FEATURES:", features)
+
+        # 🔹 Predict probability
+        prob = model.predict_proba(features)[0][1]
+
+        print("PREDICTION:", prob)
+
+        return {
+            "status": "success",
+            "attrition_probability": float(prob),
+            "top_factors": []
+        }
+
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": str(e)
+        }
