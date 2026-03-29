@@ -2,7 +2,6 @@ from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 
 
-# 🔹 Prediction Request Schema
 class PredictionRequest(BaseModel):
     Age: int
     BusinessTravel: str
@@ -36,7 +35,6 @@ class PredictionRequest(BaseModel):
     YearsWithCurrManager: int
 
 
-# 🔹 Chat Request Schema
 class ChatRequest(BaseModel):
     messages: List[Dict[str, Any]]
     employee_data: Optional[Dict[str, Any]] = None

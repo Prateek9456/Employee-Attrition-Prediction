@@ -1,7 +1,6 @@
 import joblib
 from feature_pipeline import transform_input
 
-# Lazy model loading
 model = None
 
 
@@ -16,12 +15,10 @@ def predict_and_explain(input_data: dict):
     try:
         model = load_model()
 
-        # Transform features
         features = transform_input(input_data)
 
         print("FEATURES:", features)
 
-        # Predict probability
         prob = model.predict_proba(features)[0][1]
 
         print("PREDICTION:", prob)

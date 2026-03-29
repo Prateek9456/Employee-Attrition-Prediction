@@ -8,7 +8,6 @@ print("🚀 APP STARTING...")
 
 app = FastAPI()
 
-# ✅ CORS (important for Streamlit)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
