@@ -1,9 +1,10 @@
 from pydantic import BaseModel
+from typing import List, Optional, Dict, Any
 
 
-class EmployeeInput(BaseModel):
+# 🔹 Prediction Request Schema
+class PredictionRequest(BaseModel):
     Age: int
-    Attrition: str | None = None
     BusinessTravel: str
     DailyRate: int
     Department: str
@@ -33,3 +34,10 @@ class EmployeeInput(BaseModel):
     YearsInCurrentRole: int
     YearsSinceLastPromotion: int
     YearsWithCurrManager: int
+
+
+# 🔹 Chat Request Schema
+class ChatRequest(BaseModel):
+    messages: List[Dict[str, Any]]
+    employee_data: Optional[Dict[str, Any]] = None
+    probability: Optional[float] = None
