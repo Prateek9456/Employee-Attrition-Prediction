@@ -1,6 +1,9 @@
 import streamlit as st
 import requests
 import pandas as pd
+import joblib
+import plotly.express as px
+import numpy as np
 
 API_URL = "https://attrition-backend.onrender.com"
 
@@ -77,7 +80,14 @@ with st.form("form"):
         YearsSinceLastPromotion = st.number_input("Years Since Promotion", 0, 15, 1)
         YearsWithCurrManager = st.number_input("Years With Manager", 0, 20, 3)
 
-    submit = st.form_submit_button("🔍 Predict")
+    # 🔥 BUTTONS SIDE BY SIDE
+    col_btn1, col_btn2 = st.columns(2)
+
+    with col_btn1:
+        submit = st.form_submit_button("🔍 Predict")
+
+    with col_btn2:
+        metrics_btn = st.form_submit_button("📊 Model Performance")
 
 
 # -------------------------
@@ -116,6 +126,25 @@ input_data = {
     "YearsWithCurrManager": YearsWithCurrManager
 }
 
+# -------------------------
+# 📊 SHOW METRICS
+# -------------------------
+if metrics_btn:
+    try:
+        metrics = joblib.load("metrics.pkl")
+
+        st.subheader("📊 Model Performance")
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            st.metric("Accuracy", f"{metrics['accuracy']:.2f}")
+
+        with col2:
+            st.metric("ROC-AUC", f"{metrics['roc_auc']:.2f}")
+
+    except:
+        st.warning("⚠️ Metrics not available")
 
 # -------------------------
 # PREDICT
@@ -140,9 +169,42 @@ if submit:
 
         st.bar_chart(chart.set_index("Category"))
 
+        # 🔥 SHAP FEATURE CONTRIBUTION PIE
+        try:
+            explainer = joblib.load("explainer.pkl")
+            feature_names = joblib.load("feature_names.pkl")
+
+            from feature_pipeline import transform_input
+            transformed = transform_input(input_data)
+
+            shap_values = explainer.shap_values(transformed)[0]
+            contributions = np.abs(shap_values)
+
+            contrib_df = pd.DataFrame({
+                "Feature": feature_names,
+                "Contribution": contributions
+            })
+
+            contrib_df["Contribution"] /= contrib_df["Contribution"].sum()
+
+            contrib_df = contrib_df.sort_values(by="Contribution", ascending=False).head(10)
+
+            st.subheader("📊 Top Factors Influencing Attrition")
+
+            fig = px.pie(
+                contrib_df,
+                values="Contribution",
+                names="Feature",
+                title="Feature Contribution"
+            )
+
+            st.plotly_chart(fig, use_container_width=True)
+
+        except Exception as e:
+            st.warning(f"SHAP not available: {e}")
+
     else:
         st.error(res)
-
 
 # -------------------------
 # CHAT
@@ -175,10 +237,6 @@ if user_input:
     else:
         st.error(res)
 
-
-# -------------------------
-# DISPLAY CHAT
-# -------------------------
 for msg in st.session_state.chat_history:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
