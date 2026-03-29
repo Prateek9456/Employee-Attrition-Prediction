@@ -5,11 +5,4 @@ pandas
 scikit-learn
 groq
 python-dotenv
-requestsfastapi
-uvicorn
-streamlit
-pandas
-scikit-learn
-groq
-python-dotenv
 requests
