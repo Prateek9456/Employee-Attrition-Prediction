@@ -17,8 +17,6 @@ def predict_and_explain(input_data: dict):
 
         features = transform_input(input_data)
 
-        print("FEATURES:", features)
-
         prob = model.predict_proba(features)[0][1]
 
         print("PREDICTION:", prob)
