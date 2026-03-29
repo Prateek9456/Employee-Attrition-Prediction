@@ -3,6 +3,7 @@ uvicorn
 streamlit
 pandas
 scikit-learn
+xgboost
 groq
 python-dotenv
 requests
